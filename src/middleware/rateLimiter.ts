@@ -26,31 +26,37 @@ const rateLimiterConfig = {
 const createRateLimiter = async () => {
   try {
     const isRedisReady = await redisReady;
-    
+
     if (isRedisReady && redisClient) {
       console.log('Using Redis-based rate limiter');
       return rateLimit({
         ...rateLimiterConfig,
         store: new RedisStore({
+          // @ts-ignore - The sendCommand function is compatible, but the types are complex.
           sendCommand: async (...args: string[]) => {
+            // This check is for TypeScript; in practice, redisClient will be defined here.
+            if (!redisClient) {
+              throw new Error('Attempted to use Redis rate limiter but client is not initialized.');
+            }
             try {
+              // The underlying redis client will throw if the connection is lost
               return await redisClient.sendCommand(args);
             } catch (error) {
-              console.error('Redis command error:', error instanceof Error ? error.message : 'Unknown error');
-              // Don't throw, let it fall back to memory store
-              return null;
+              console.error('Redis command error in rate-limiter:', error instanceof Error ? error.message : 'Unknown error');
+              // Re-throw the error. express-rate-limit will catch it and call next(err) for the current request.
+              throw error;
             }
           },
           prefix: 'rl:',
         })
       });
     } else {
-      console.log('Using memory-based rate limiter');
+      console.log('Using memory-based rate limiter because Redis is not available.');
       return rateLimit(rateLimiterConfig);
     }
   } catch (error) {
     console.error('Error creating rate limiter:', error instanceof Error ? error.message : 'Unknown error');
-    console.log('Falling back to memory-based rate limiter');
+    console.log('Falling back to memory-based rate limiter due to an error during initialization.');
     return rateLimit(rateLimiterConfig);
   }
 };
@@ -59,17 +65,19 @@ const createRateLimiter = async () => {
 let rateLimiterInstance: any = null;
 createRateLimiter().then(limiter => {
   rateLimiterInstance = limiter;
+  console.log('Rate limiter initialized successfully.');
 }).catch(error => {
-  console.error('Failed to create rate limiter:', error);
+  console.error('Failed to create rate limiter, falling back to memory store:', error);
   rateLimiterInstance = rateLimit(rateLimiterConfig);
 });
 
 // Export middleware that uses the appropriate rate limiter
 export const rateLimiter = (req: Request, res: Response, next: NextFunction) => {
   if (!rateLimiterInstance) {
-    // If rate limiter is not ready yet, allow the request
-    console.log('Rate limiter not ready, allowing request');
-    return next();
+    // This can happen if the async createRateLimiter is still running.
+    // We fall back to a basic memory limiter to handle requests during this brief startup period.
+    console.warn('Rate limiter not yet initialized, using temporary limiter for this request.');
+    return rateLimit(rateLimiterConfig)(req, res, next);
   }
   return rateLimiterInstance(req, res, next);
 }; 
