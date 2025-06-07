@@ -7,8 +7,8 @@ import redisClient, { redisReady } from '../services/redis';
 const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
 const RATE_LIMIT_MAX = 30; // requests per window
 
-// Common configuration for both limiters
-const commonConfig = {
+// Common configuration for rate limiter
+const rateLimiterConfig = {
   windowMs: RATE_LIMIT_WINDOW_MS,
   max: RATE_LIMIT_MAX,
   standardHeaders: true,
@@ -22,42 +22,54 @@ const commonConfig = {
   }
 };
 
-// Redis-backed rate limiter
-const redisRateLimiter = rateLimit({
-  ...commonConfig,
-  store: new RedisStore({
-    sendCommand: async (...args: string[]) => {
-      try {
-        const isReady = await redisReady;
-        if (!isReady) {
-          throw new Error('Redis not available');
-        }
-        return await redisClient.sendCommand(args);
-      } catch (error) {
-        console.error('Redis rate limiter error:', error instanceof Error ? error.message : 'Unknown error');
-        throw error; // Let the rate limiter handle the fallback
-      }
-    },
-    prefix: 'rl:',
-  })
-});
-
-// Memory-based rate limiter (fallback)
-const memoryRateLimiter = rateLimit(commonConfig);
-
-// Middleware that chooses the appropriate rate limiter
-export const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
+// Create the appropriate rate limiter based on Redis availability
+const createRateLimiter = async () => {
   try {
     const isRedisReady = await redisReady;
-    if (isRedisReady) {
-      return redisRateLimiter(req, res, next);
+    
+    if (isRedisReady && redisClient) {
+      console.log('Using Redis-based rate limiter');
+      return rateLimit({
+        ...rateLimiterConfig,
+        store: new RedisStore({
+          sendCommand: async (...args: string[]) => {
+            try {
+              return await redisClient.sendCommand(args);
+            } catch (error) {
+              console.error('Redis command error:', error instanceof Error ? error.message : 'Unknown error');
+              // Don't throw, let it fall back to memory store
+              return null;
+            }
+          },
+          prefix: 'rl:',
+        })
+      });
     } else {
-      console.log('Using memory-based rate limiter (Redis not available)');
-      return memoryRateLimiter(req, res, next);
+      console.log('Using memory-based rate limiter');
+      return rateLimit(rateLimiterConfig);
     }
   } catch (error) {
-    console.error('Rate limiter error:', error instanceof Error ? error.message : 'Unknown error');
-    // On any error, fall back to memory-based rate limiting
-    return memoryRateLimiter(req, res, next);
+    console.error('Error creating rate limiter:', error instanceof Error ? error.message : 'Unknown error');
+    console.log('Falling back to memory-based rate limiter');
+    return rateLimit(rateLimiterConfig);
   }
+};
+
+// Initialize rate limiter
+let rateLimiterInstance: any = null;
+createRateLimiter().then(limiter => {
+  rateLimiterInstance = limiter;
+}).catch(error => {
+  console.error('Failed to create rate limiter:', error);
+  rateLimiterInstance = rateLimit(rateLimiterConfig);
+});
+
+// Export middleware that uses the appropriate rate limiter
+export const rateLimiter = (req: Request, res: Response, next: NextFunction) => {
+  if (!rateLimiterInstance) {
+    // If rate limiter is not ready yet, allow the request
+    console.log('Rate limiter not ready, allowing request');
+    return next();
+  }
+  return rateLimiterInstance(req, res, next);
 }; 
