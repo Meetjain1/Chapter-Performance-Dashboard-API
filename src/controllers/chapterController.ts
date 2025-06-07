@@ -1,31 +1,70 @@
 import { Request, Response } from 'express';
-import Chapter from '../models/Chapter';
-import { getCache, setCache, invalidateCache } from '../services/redisService';
-import { LeanDocument } from 'mongoose';
-import { File } from 'multer';
+import Chapter, { ChapterStatus, PaginatedChapterResponse } from '../models/Chapter';
+import { cacheKey, getCache, setCache, invalidateCache } from '../services/redisService';
+import fs from 'fs';
+import path from 'path';
 
-// Extended Request type to include file
-interface FileRequest extends Request {
-  file?: File;
+// Add MulterRequest interface
+interface MulterRequest extends Request {
+  file?: Express.Multer.File;
 }
 
 export const getAllChapters = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { page = 1, limit = 10, class: className, subject, unit, status, isWeakChapter } = req.query;
+    const {
+      status,
+      weakChapters,
+      subject,
+      class: classLevel,
+      unit,
+      page = '1',
+      limit = '10'
+    } = req.query;
 
     // Build filter object
     const filter: any = {};
-    if (className) filter.class = className;
-    if (subject) filter.subject = subject;
-    if (unit) filter.unit = unit;
-    if (status) filter.status = status;
-    if (isWeakChapter !== undefined) filter.isWeakChapter = isWeakChapter === 'true';
+    
+    if (status) {
+      // Convert status to proper case format
+      const statusMap: { [key: string]: ChapterStatus } = {
+        'not started': ChapterStatus.NOT_STARTED,
+        'in progress': ChapterStatus.IN_PROGRESS,
+        'completed': ChapterStatus.COMPLETED
+      };
 
-    // Create cache key based on query parameters
-    const cacheKeyStr = JSON.stringify({ ...req.query });
+      const normalizedStatus = status.toString().toLowerCase();
+      const validStatus = statusMap[normalizedStatus];
 
-    // Try to get from cache
+      if (validStatus) {
+        filter.status = validStatus;
+      } else {
+        res.status(400).json({ 
+          error: `Invalid status value. Must be one of: ${Object.values(ChapterStatus).join(', ')}` 
+        });
+        return;
+      }
+    }
+    
+    if (weakChapters !== undefined) {
+      filter.isWeakChapter = weakChapters === 'true';
+    }
+    
+    if (subject) {
+      filter.subject = subject;
+    }
+    
+    if (classLevel) {
+      filter.class = classLevel;
+    }
+    
+    if (unit) {
+      filter.unit = unit;
+    }
+
+    // Check cache first
+    const cacheKeyStr = cacheKey({ ...filter, page, limit });
     const cachedData = await getCache(cacheKeyStr);
+    
     if (cachedData) {
       res.json(cachedData);
       return;
@@ -45,8 +84,8 @@ export const getAllChapters = async (req: Request, res: Response): Promise<void>
       Chapter.countDocuments(filter)
     ]);
 
-    const response = {
-      chapters: chapters as LeanDocument<any>[],
+    const response: PaginatedChapterResponse = {
+      chapters,
       total,
       page: pageNum,
       limit: limitNum,
@@ -77,7 +116,7 @@ export const getChapterById = async (req: Request, res: Response): Promise<void>
   }
 };
 
-export const uploadChapters = async (req: FileRequest, res: Response): Promise<void> => {
+export const uploadChapters = async (req: MulterRequest, res: Response): Promise<void> => {
   console.log('uploadChapters controller called');
   const failedUploads: any[] = [];
   
@@ -87,44 +126,90 @@ export const uploadChapters = async (req: FileRequest, res: Response): Promise<v
       return;
     }
 
-    const fileContent = req.file.buffer.toString();
-    const chapters = JSON.parse(fileContent);
-
-    if (!Array.isArray(chapters)) {
-      res.status(400).json({ error: 'Invalid file format. Expected array of chapters.' });
+    const filePath = path.join(process.cwd(), req.file.path);
+    console.log('Reading file from:', filePath);
+    
+    let fileContent: string;
+    try {
+      fileContent = fs.readFileSync(filePath, 'utf8');
+      fs.unlinkSync(filePath);
+    } catch (err) {
+      console.error('Error reading file:', err);
+      res.status(400).json({ error: 'Could not read uploaded file' });
       return;
     }
 
-    // Process each chapter
-    const results = await Promise.allSettled(
-      chapters.map((chapter: any) => Chapter.create(chapter))
-    );
+    let chapters: any[];
+    try {
+      chapters = JSON.parse(fileContent);
+      if (!Array.isArray(chapters)) {
+        res.status(400).json({ error: 'File must contain an array of chapters' });
+        return;
+      }
+    } catch (err) {
+      console.error('Error parsing JSON:', err);
+      res.status(400).json({ error: 'Invalid JSON format' });
+      return;
+    }
 
-    // Collect failed uploads
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
+    const successfulUploads: any[] = [];
+    
+    // Process each chapter individually
+    for (const chapter of chapters) {
+      try {
+        const mappedChapter = {
+          chapter: chapter.chapter || '',
+          class: String(chapter.class || ''),
+          subject: chapter.subject || '',
+          unit: chapter.unit || '',
+          status: (chapter.status || ChapterStatus.NOT_STARTED) as ChapterStatus,
+          isWeakChapter: Boolean(chapter.isWeakChapter || false),
+          yearWiseQuestionCount: chapter.yearWiseQuestionCount || {},
+          questionSolved: Number(chapter.questionSolved || 0)
+        };
+
+        const newChapter = new Chapter(mappedChapter);
+        await newChapter.validate();
+        successfulUploads.push(mappedChapter);
+      } catch (error: any) {
         failedUploads.push({
-          chapter: chapters[index],
-          error: (result as PromiseRejectedResult).reason?.message || 'Unknown error'
+          chapter: chapter.chapter,
+          error: error.message
         });
       }
-    });
+    }
 
-    // Invalidate cache after successful upload
-    await invalidateCache();
+    // Insert successful uploads
+    if (successfulUploads.length > 0) {
+      await Chapter.insertMany(successfulUploads, { ordered: false });
+      // Invalidate cache after successful upload
+      await invalidateCache();
+    }
 
-    res.json({
-      message: 'Chapters processed',
+    res.status(200).json({
+      message: 'Upload completed',
       totalProcessed: chapters.length,
-      successful: chapters.length - failedUploads.length,
+      successful: successfulUploads.length,
       failed: failedUploads.length,
-      failedUploads: failedUploads
+      failedUploads: failedUploads.length > 0 ? failedUploads : undefined
     });
-  } catch (error) {
+
+  } catch (error: any) {
     console.error('Error in uploadChapters:', error);
-    res.status(500).json({ 
-      error: 'Failed to process chapters',
-      details: error instanceof Error ? error.message : 'Unknown error'
+    
+    if (error.code === 11000) {
+      res.status(409).json({ 
+        error: 'Duplicate chapters found',
+        details: error.message,
+        failedUploads
+      });
+      return;
+    }
+
+    res.status(500).json({
+      error: 'Failed to upload chapters',
+      message: error.message,
+      failedUploads
     });
   }
 }; 

@@ -215,7 +215,7 @@ const upload = multer({
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
-  fileFilter: (_, file, cb) => {
+  fileFilter: (_: Express.Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
     if (file.mimetype === 'application/json') {
       cb(null, true);
     } else {
