@@ -9,6 +9,13 @@ const router = Router();
 
 /**
  * @swagger
+ * tags:
+ *   name: Chapters
+ *   description: API endpoints for managing chapters
+ */
+
+/**
+ * @swagger
  * components:
  *   schemas:
  *     Chapter:
