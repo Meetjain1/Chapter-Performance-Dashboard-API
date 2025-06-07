@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import 'multer'; // Import multer to make Express.Multer types available
 import Chapter, { ChapterStatus, PaginatedChapterResponse } from '../models/Chapter';
 import { cacheKey, getCache, setCache, invalidateCache } from '../services/redisService';
 import fs from 'fs';
