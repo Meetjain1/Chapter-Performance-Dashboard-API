@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
 import Chapter, { ChapterStatus, PaginatedChapterResponse } from '../models/Chapter';
-// NOTE: Caching has been temporarily removed to resolve deployment issues.
-// import { getCache, setCache, invalidateCache } from '../services/redisService';
+import { cacheKey, getCache, setCache, invalidateCache } from '../services/redisService';
 import fs from 'fs';
 import path from 'path';
 
@@ -57,13 +56,14 @@ export const getAllChapters = async (req: Request, res: Response): Promise<void>
       filter.unit = unit;
     }
 
-    const queryKey = JSON.stringify(req.query);
-    // const cachedData = await getCache(queryKey);
-    // if (cachedData) {
-    //   console.log('Serving from cache');
-    //   res.json(JSON.parse(cachedData));
-    //   return;
-    // }
+    // Check cache first
+    const cacheKeyStr = cacheKey({ ...filter, page, limit });
+    const cachedData = await getCache(cacheKeyStr);
+    
+    if (cachedData) {
+      res.json(cachedData);
+      return;
+    }
 
     // Pagination
     const pageNum = parseInt(page.toString());
@@ -88,7 +88,7 @@ export const getAllChapters = async (req: Request, res: Response): Promise<void>
     };
 
     // Cache the response
-    // await setCache(queryKey, JSON.stringify(response));
+    await setCache(cacheKeyStr, response);
 
     res.json(response);
   } catch (error) {
@@ -177,8 +177,8 @@ export const uploadChapters = async (req: Request, res: Response): Promise<void>
     // Insert successful uploads
     if (successfulUploads.length > 0) {
       await Chapter.insertMany(successfulUploads, { ordered: false });
-      // Invalidate cache
-      // await invalidateCache();
+      // Invalidate cache after successful upload
+      await invalidateCache();
     }
 
     res.status(200).json({

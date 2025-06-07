@@ -1,25 +1,17 @@
-import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerJSDoc from 'swagger-jsdoc';
 
-const isProduction = process.env.NODE_ENV === 'production';
-
-// Set the server URL based on the environment
-const serverUrl = isProduction
-  ? 'https://chapter-performance-dashboard-api.onrender.com'
-  : 'http://localhost:3000';
-
-const options: swaggerJsdoc.Options = {
-  definition: {
+const swaggerOptions = {
+  swaggerDefinition: {
     openapi: '3.0.0',
     info: {
-      title: 'Chapter Performance Dashboard API',
+      title: 'Chapter Performance API',
       version: '1.0.0',
-      description:
-        'A RESTful API for managing chapter performance data with advanced features like caching, rate limiting, and admin authentication.',
+      description: 'API documentation for the Chapter Performance Dashboard, providing endpoints for managing and retrieving chapter data with admin authentication.',
     },
     servers: [
       {
-        url: serverUrl,
-        description: isProduction ? 'Production Server' : 'Development Server',
+        url: 'http://localhost:3000',
+        description: 'Development server',
       },
     ],
     components: {
@@ -37,8 +29,7 @@ const options: swaggerJsdoc.Options = {
       },
     ],
   },
-  // Path to the API docs
-  apis: ['./src/routes/*.ts', './src/models/*.ts'],
+  apis: ['./src/routes/*.ts'], // Path to the API docs
 };
 
-export const swaggerSpec = swaggerJsdoc(options); 
+export const swaggerSpec = swaggerJSDoc(swaggerOptions); 

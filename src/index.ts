@@ -2,49 +2,45 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
 import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './swaggerConfig';
+import config from './config/config';
 
 import chapterRoutes from './routes/chapterRoutes';
 import authRoutes from './routes/authRoutes';
 import { redisReady } from './services/redis';
 
-dotenv.config();
-
+// Create Express app
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // Middleware
-app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(helmet());
 app.use(morgan('dev'));
-app.use(express.json());
 
-// Health check endpoint
-app.get('/healthz', (req, res) => {
-  res.status(200).json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime()
-  });
-});
+// CORS configuration
+app.use(cors({
+  origin: config.corsOrigins,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
-// API Documentation
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Routes
+// API routes
 app.use('/api/v1/chapters', chapterRoutes);
 app.use('/api/v1/auth', authRoutes);
-console.log('Chapters route registered at /api/v1/chapters');
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found' });
+// Swagger documentation
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', environment: process.env.NODE_ENV });
 });
 
-// Error handler
+// Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal Server Error' });
@@ -53,15 +49,18 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // Start server
 (async () => {
   try {
+    // Wait for Redis to be ready
     await redisReady;
     console.log('Redis is ready');
 
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/chapter-performance');
+    // Connect to MongoDB
+    await mongoose.connect(config.mongoUri);
     console.log('MongoDB connected');
 
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`API Documentation: http://localhost:${PORT}/docs`);
+    // Start the server
+    app.listen(config.port, () => {
+      console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${config.port}`);
+      console.log(`API Documentation: http://localhost:${config.port}/docs`);
     });
   } catch (error) {
     console.error('Startup error:', error);
