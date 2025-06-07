@@ -1,12 +1,17 @@
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import redisClient, { redisReady } from '../services/redis';
+import { MemoryStore } from 'express-rate-limit';
 
 // Create a memory store as fallback
-const memoryStore = new Map();
+const memoryStore = new MemoryStore();
 
 // Create Redis store with fallback to memory store
 export const rateLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
   store: new RedisStore({
     // @ts-ignore - Type mismatch is expected here but functionality works
     sendCommand: async (...args: string[]) => {
@@ -14,26 +19,31 @@ export const rateLimiter = rateLimit({
         await redisReady;
         return await redisClient.sendCommand(args);
       } catch (error) {
-        console.error('Rate limiter Redis error:', error);
+        console.error('Rate limiter Redis error, falling back to memory store:', error);
         // Use memory store as fallback
-        const key = args[1] || '';
-        if (args[0] === 'incr') {
-          const current = (memoryStore.get(key) || 0) + 1;
-          memoryStore.set(key, current);
-          return current;
+        const [command, key, ...rest] = args;
+        switch (command) {
+          case 'incr':
+            return memoryStore.increment({ key });
+          case 'get':
+            return memoryStore.get({ key });
+          case 'set':
+            return memoryStore.set({ key, value: rest[0] });
+          default:
+            return undefined;
         }
-        if (args[0] === 'pexpire') {
-          memoryStore.set(key, 0);
-          return 1;
-        }
-        return null;
       }
     },
-    prefix: 'rate-limit:'
+    prefix: 'rl:', // Rate limiter key prefix
   }),
-  windowMs: 60 * 1000, // 1 minute
-  max: 30, // 30 requests per minute
-  message: 'Too many requests from this IP, please try again after a minute',
-  standardHeaders: true,
-  legacyHeaders: false
+  skip: (req) => {
+    // Skip rate limiting for health check endpoint
+    return req.path === '/health';
+  },
+  handler: (req, res) => {
+    res.status(429).json({
+      error: 'Too many requests, please try again later.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  }
 }); 
