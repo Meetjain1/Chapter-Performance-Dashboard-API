@@ -16,36 +16,35 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Logging middleware
-app.use(morgan('dev'));
-
-// Basic middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Simple CORS setup
+// Middleware
 app.use(cors());
+app.use(helmet());
+app.use(morgan('dev'));
+app.use(express.json());
 
-// Basic security headers
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
+// Health check endpoint
+app.get('/healthz', (req, res) => {
+  res.status(200).json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
-// API documentation
-app.use('/docs', swaggerUi.serve);
-app.get('/docs', swaggerUi.setup(swaggerSpec));
+// API Documentation
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// API Routes
-app.use('/api/v1/auth', authRoutes);
+// Routes
 app.use('/api/v1/chapters', chapterRoutes);
+app.use('/api/v1/auth', authRoutes);
 console.log('Chapters route registered at /api/v1/chapters');
 
-// Error handlers
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
+// Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal Server Error' });
