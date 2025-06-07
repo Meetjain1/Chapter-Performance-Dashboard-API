@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: chapter-performance-api
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: chapter-performance-redis
+          property: connectionString
+
+  - type: redis
+    name: chapter-performance-redis
+    ipAllowList: []
+    plan: free 
