@@ -17,13 +17,14 @@ services:
         sync: false
       - key: MONGODB_URI
         sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: chapter-performance-redis
-          property: connectionString
+    plan: free
+    dependencies:
+      - type: redis
+        name: chapter-performance-redis
+        ipAllowList: []
 
   - type: redis
     name: chapter-performance-redis
     ipAllowList: []
-    plan: free 
+    plan: free
+    maxmemoryPolicy: allkeys-lru # Evict any key when memory is full 
