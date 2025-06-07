@@ -21,14 +21,21 @@ export const rateLimiter = rateLimit({
       } catch (error) {
         console.error('Rate limiter Redis error, falling back to memory store:', error);
         // Use memory store as fallback
-        const [command, key, ...rest] = args;
+        const [command, key] = args;
+        
+        // Convert the key to a string since MemoryStore expects string keys
+        const keyStr = String(key);
+        
         switch (command) {
           case 'incr':
-            return memoryStore.increment({ key });
+            return memoryStore.increment(keyStr);
           case 'get':
-            return memoryStore.get({ key });
+            return memoryStore.get(keyStr);
           case 'set':
-            return memoryStore.set({ key, value: rest[0] });
+            const value = args[2];
+            const hits = parseInt(value) || 1;
+            const resetTime = Date.now() + 60000; // 1 minute from now
+            return memoryStore.resetKey(keyStr, { hits, resetTime });
           default:
             return undefined;
         }
