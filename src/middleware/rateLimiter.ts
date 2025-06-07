@@ -3,51 +3,61 @@ import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import redisClient, { redisReady } from '../services/redis';
 
+// Configuration
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX = 30; // requests per window
+
+// Common configuration for both limiters
+const commonConfig = {
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  max: RATE_LIMIT_MAX,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req: Request) => req.path === '/healthz',
+  handler: (req: Request, res: Response) => {
+    res.status(429).json({
+      error: 'Too many requests, please try again later.',
+      retryAfter: res.getHeader('Retry-After')
+    });
+  }
+};
+
 // Redis-backed rate limiter
 const redisRateLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 30, // 30 requests per minute
-  standardHeaders: true,
-  legacyHeaders: false,
+  ...commonConfig,
   store: new RedisStore({
-    // @ts-ignore
     sendCommand: async (...args: string[]) => {
-      await redisReady;
-      return await redisClient.sendCommand(args);
+      try {
+        const isReady = await redisReady;
+        if (!isReady) {
+          throw new Error('Redis not available');
+        }
+        return await redisClient.sendCommand(args);
+      } catch (error) {
+        console.error('Redis rate limiter error:', error instanceof Error ? error.message : 'Unknown error');
+        throw error; // Let the rate limiter handle the fallback
+      }
     },
     prefix: 'rl:',
-  }),
-  skip: (req) => req.path === '/healthz',
-  handler: (req, res) => {
-    res.status(429).json({
-      error: 'Too many requests, please try again later.',
-      retryAfter: res.getHeader('Retry-After')
-    });
-  }
+  })
 });
 
-// Memory store rate limiter (fallback)
-const memoryRateLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.path === '/healthz',
-  handler: (req, res) => {
-    res.status(429).json({
-      error: 'Too many requests, please try again later.',
-      retryAfter: res.getHeader('Retry-After')
-    });
-  }
-});
+// Memory-based rate limiter (fallback)
+const memoryRateLimiter = rateLimit(commonConfig);
 
-// Middleware to choose the correct rate limiter
+// Middleware that chooses the appropriate rate limiter
 export const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    await redisReady;
-    return redisRateLimiter(req, res, next);
-  } catch (err) {
-    console.error('Falling back to memory rate limiter:', err);
+    const isRedisReady = await redisReady;
+    if (isRedisReady) {
+      return redisRateLimiter(req, res, next);
+    } else {
+      console.log('Using memory-based rate limiter (Redis not available)');
+      return memoryRateLimiter(req, res, next);
+    }
+  } catch (error) {
+    console.error('Rate limiter error:', error instanceof Error ? error.message : 'Unknown error');
+    // On any error, fall back to memory-based rate limiting
     return memoryRateLimiter(req, res, next);
   }
 }; 

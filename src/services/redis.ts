@@ -1,28 +1,31 @@
 import { createClient } from 'redis';
 
-const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
-console.log('Connecting to Redis at:', redisUrl.replace(/\/\/.*@/, '//')); // Log URL without credentials
+// Get Redis URL from environment, with better logging
+const redisUrl = process.env.REDIS_URL;
+console.log('Redis URL configured:', redisUrl ? 'Yes' : 'No (using localhost)');
+console.log('Attempting Redis connection...');
 
+// Create Redis client with better error handling
 const redisClient = createClient({
-  url: redisUrl,
+  url: redisUrl || 'redis://localhost:6379',
   socket: {
     reconnectStrategy: (retries) => {
-      const maxRetries = 20;
+      const maxRetries = 5;
       if (retries > maxRetries) {
-        console.error(`Max Redis reconnection attempts (${maxRetries}) reached`);
-        return new Error('Max Redis reconnection attempts reached');
+        console.error(`Max Redis reconnection attempts (${maxRetries}) reached. Continuing without Redis.`);
+        return false; // Stop retrying
       }
-      const delay = Math.min(retries * 100, 3000);
+      const delay = Math.min(retries * 500, 3000);
       console.log(`Redis reconnection attempt ${retries}, waiting ${delay}ms`);
       return delay;
     },
-    connectTimeout: 10000, // 10 seconds
+    connectTimeout: 5000, // 5 seconds
   }
 });
 
+// Handle Redis events
 redisClient.on('error', (err) => {
-  console.error('Redis Client Error:', err);
-  // Don't crash the app on Redis errors
+  console.error('Redis Client Error:', err.message);
 });
 
 redisClient.on('connect', () => {
@@ -37,12 +40,21 @@ redisClient.on('reconnecting', () => {
   console.log('Redis Client Reconnecting...');
 });
 
-// Connect to Redis
-const redisReady = redisClient.connect().catch(err => {
-  console.error('Failed to connect to Redis:', err);
-  // Don't throw error, let the app continue without Redis
-  return Promise.resolve();
+redisClient.on('end', () => {
+  console.log('Redis Client Connection Ended');
 });
+
+// Connect to Redis with fallback
+const redisReady = redisClient.connect()
+  .then(() => {
+    console.log('Redis connection successful');
+    return true;
+  })
+  .catch(err => {
+    console.error('Redis connection failed:', err.message);
+    console.log('Continuing without Redis...');
+    return false;
+  });
 
 export { redisReady };
 export default redisClient; 
