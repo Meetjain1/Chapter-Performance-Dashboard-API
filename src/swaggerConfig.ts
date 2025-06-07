@@ -1,5 +1,10 @@
 import swaggerJSDoc from 'swagger-jsdoc';
 
+const isProduction = process.env.NODE_ENV === 'production';
+const serverUrl = isProduction 
+  ? 'https://chapter-performance-dashboard-api.onrender.com' 
+  : 'http://localhost:3000';
+
 const swaggerOptions = {
   swaggerDefinition: {
     openapi: '3.0.0',
@@ -10,8 +15,8 @@ const swaggerOptions = {
     },
     servers: [
       {
-        url: 'http://localhost:3000',
-        description: 'Development server',
+        url: serverUrl,
+        description: isProduction ? 'Production Server' : 'Development Server'
       },
     ],
     components: {
@@ -29,7 +34,7 @@ const swaggerOptions = {
       },
     ],
   },
-  apis: ['./src/routes/*.ts'], // Path to the API docs
+  apis: ['./src/routes/*.ts', './src/models/*.ts'], // Path to the API docs
 };
 
 export const swaggerSpec = swaggerJSDoc(swaggerOptions); 
