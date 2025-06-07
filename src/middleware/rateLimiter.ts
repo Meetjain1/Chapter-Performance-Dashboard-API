@@ -1,3 +1,4 @@
+import { Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import redisClient, { redisReady } from '../services/redis';
@@ -41,7 +42,7 @@ const memoryRateLimiter = rateLimit({
 });
 
 // Middleware to choose the correct rate limiter
-export const rateLimiter = async (req, res, next) => {
+export const rateLimiter = async (req: Request, res: Response, next: NextFunction) => {
   try {
     await redisReady;
     return redisRateLimiter(req, res, next);
