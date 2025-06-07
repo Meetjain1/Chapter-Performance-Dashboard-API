@@ -2,7 +2,7 @@ import { Router, RequestHandler } from 'express';
 import multer from 'multer';
 import 'multer'; // Import multer to make Express.Multer types available
 import { getAllChapters, getChapterById, uploadChapters } from '../controllers/chapterController';
-import { rateLimiter } from '../middleware/rateLimit';
+import rateLimiter from '../middleware/rateLimiter';
 import { isAdmin } from '../middleware/auth';
 
 const router = Router();
