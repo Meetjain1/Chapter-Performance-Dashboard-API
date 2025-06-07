@@ -1,0 +1,47 @@
+[
+  {
+    "title": "Linear Equations",
+    "class": 10,
+    "subject": "Mathematics",
+    "unit": "Algebra",
+    "status": "active",
+    "weakChapter": false,
+    "description": "Understanding and solving linear equations in one variable"
+  },
+  {
+    "title": "Quadratic Equations",
+    "class": 10,
+    "subject": "Mathematics",
+    "unit": "Algebra",
+    "status": "active",
+    "weakChapter": true,
+    "description": "Understanding and solving quadratic equations"
+  },
+  {
+    "title": "Trigonometry",
+    "class": 10,
+    "subject": "Mathematics",
+    "unit": "Trigonometry",
+    "status": "active",
+    "weakChapter": false,
+    "description": "Introduction to trigonometric ratios and identities"
+  },
+  {
+    "title": "Chemical Reactions",
+    "class": 10,
+    "subject": "Chemistry",
+    "unit": "Chemical Processes",
+    "status": "active",
+    "weakChapter": false,
+    "description": "Types of chemical reactions and their balancing"
+  },
+  {
+    "title": "Electricity",
+    "class": 10,
+    "subject": "Physics",
+    "unit": "Current Electricity",
+    "status": "active",
+    "weakChapter": true,
+    "description": "Understanding electric current, potential difference, and resistance"
+  }
+] 
