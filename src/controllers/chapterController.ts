@@ -1,13 +1,12 @@
 import { Request, Response } from 'express';
-import Chapter, { ChapterStatus, PaginatedChapterResponse } from '../models/Chapter';
-import { cacheKey, getCache, setCache, invalidateCache } from '../services/redisService';
-import fs from 'fs';
-import path from 'path';
-import { PaginatedChapterResponse as PaginatedChapterResponseType } from '../types/chapter';
+import Chapter from '../models/Chapter';
+import { getCache, setCache, invalidateCache } from '../services/redisService';
+import { LeanDocument } from 'mongoose';
+import { File } from 'multer';
 
 // Extended Request type to include file
 interface FileRequest extends Request {
-  file?: Express.Multer.File;
+  file?: File;
 }
 
 export const getAllChapters = async (req: Request, res: Response): Promise<void> => {
@@ -46,8 +45,8 @@ export const getAllChapters = async (req: Request, res: Response): Promise<void>
       Chapter.countDocuments(filter)
     ]);
 
-    const response: PaginatedChapterResponseType = {
-      chapters,
+    const response = {
+      chapters: chapters as LeanDocument<any>[],
       total,
       page: pageNum,
       limit: limitNum,
@@ -98,7 +97,7 @@ export const uploadChapters = async (req: FileRequest, res: Response): Promise<v
 
     // Process each chapter
     const results = await Promise.allSettled(
-      chapters.map(chapter => Chapter.create(chapter))
+      chapters.map((chapter: any) => Chapter.create(chapter))
     );
 
     // Collect failed uploads
@@ -106,7 +105,7 @@ export const uploadChapters = async (req: FileRequest, res: Response): Promise<v
       if (result.status === 'rejected') {
         failedUploads.push({
           chapter: chapters[index],
-          error: result.reason.message
+          error: (result as PromiseRejectedResult).reason?.message || 'Unknown error'
         });
       }
     });
